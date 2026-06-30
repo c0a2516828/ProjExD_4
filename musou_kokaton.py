@@ -128,6 +128,7 @@ class Bomb(pg.sprite.Sprite):
         引数2 bird：攻撃対象のこうかとん
         """
         super().__init__()
+        self.state = "active"
         rad = random.randint(10, 50)  # 爆弾円の半径：10以上50以下の乱数
         self.image = pg.Surface((2*rad, 2*rad))
         color = random.choice(__class__.colors)  # 爆弾円の色：クラス変数からランダム選択
@@ -145,6 +146,10 @@ class Bomb(pg.sprite.Sprite):
         爆弾を速度ベクトルself.vx, self.vyに基づき移動させる
         引数 screen：画面Surface
         """
+        
+        if self.state == "inactive":
+            self.rect.move_ip(self.speed*self.vx, self.speed*self.vy)
+            return
         self.rect.move_ip(self.speed*self.vx, self.speed*self.vy)
         if check_bound(self.rect) != (True, True):
             self.kill()
@@ -308,6 +313,32 @@ class Life:
             screen.blit(self.surfs[i], (x - 20, y - 20))  # 中心合わせ
 
 
+class Emp:
+    """
+    発動時に存在する敵機と爆弾を無効化するするクラス
+    消費スコア：20
+    """
+    def __init__(self, emys: pg.sprite.Group, bombs: pg.sprite.Group, screen: pg.Surface):
+            self.emys = emys
+            self.bombs = bombs
+            self.screen = screen
+
+            for emy in self.emys: # 無敵化
+                emy.interval = math.inf
+                emy.image = pg.transform.laplacian(emy.image)
+
+            for bomb in self.bombs:
+                bomb.speed *=0.5
+                bomb.state ="inactive"
+
+            overlay = pg.Surface((WIDTH, HEIGHT))
+            overlay.set_alpha(128)
+            overlay.fill((255, 255, 0))
+            self.screen.blit(overlay, (0, 0))
+            pg.display.update()
+            time.sleep(0.05)
+
+
 def main():
     pg.display.set_caption("真！こうかとん無双")
     screen = pg.display.set_mode((WIDTH, HEIGHT))
@@ -332,7 +363,6 @@ def main():
             if event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
                 beams.add(Beam(bird))
             if event.type == pg.KEYDOWN and event.key == pg.K_RSHIFT:
-                print("OK")
                 if (bird.state == "nomal") and (score.value >= 100):
                     bird.state = "hyper"
                     bird.hyper_life = 500
@@ -341,6 +371,15 @@ def main():
                 if score.value >= 200:
                     score.value -= 200
                     gravitys.add(Gravity(400))
+            
+            if event.type == pg.KEYDOWN:
+                if event.key == pg.K_SPACE:
+                    beams.add(Beam(bird))
+ 
+                if event.key == pg.K_e and score.value > 20:
+                    Emp(emys, bombs, screen)
+                    score.value -= 20
+
         screen.blit(bg_img, [0, 0])
 
         if tmr%200 == 0:  # 200フレームに1回，敵機を出現させる
@@ -365,15 +404,21 @@ def main():
                 exps.add(Explosion(bomb, 50)) # 爆弾エフェクト
                 score.value += 1 # 1点アップ
             else:
+                if bomb.state == "inactive":
+                    bomb.kill()
+                    continue
                 life.num -= 1 # ライフを1減らす
                 bird.change_img(8, screen)  # こうかとん悲しみエフェクト
                 score.update(screen)
                 life.update(screen)
                 pg.display.update()
                 time.sleep(2)
-
                 if life.num <= 0:
                     return # ライフが尽きたらゲーム終了
+            
+
+
+                
         
         for grav in gravitys:
             # 爆弾の除去
