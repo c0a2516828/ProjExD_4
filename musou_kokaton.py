@@ -8,6 +8,7 @@ import pygame as pg
 
 WIDTH = 1100  # ゲームウィンドウの幅
 HEIGHT = 650  # ゲームウィンドウの高さ
+Num_NeoBeam = 5 #弾幕モードで同時に発射する弾の数(演習課題6)
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -72,8 +73,6 @@ class Bird(pg.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.center = xy
         self.speed = 10
-        self.state = "nomal"
-        self.hyper_life = 0
 
     def change_img(self, num: int, screen: pg.Surface):
         """
@@ -100,19 +99,8 @@ class Bird(pg.sprite.Sprite):
             self.rect.move_ip(-self.speed*sum_mv[0], -self.speed*sum_mv[1])
         if not (sum_mv[0] == 0 and sum_mv[1] == 0):
             self.dire = tuple(sum_mv)
-            if self.state == "hyper":
-                self.image = self.imgs[self.dire]
-                self.image = pg.transform.laplacian(self.image)
-            else:
-                self.image = self.imgs[self.dire]
+            self.image = self.imgs[self.dire]
         screen.blit(self.image, self.rect)
-        if self.state == "hyper":
-            self.image = pg.transform.laplacian(self.image)
-            self.hyper_life -= 1
-            if (self.hyper_life < 0):
-                self.state = "nomal"
-
-
 
 
 class Bomb(pg.sprite.Sprite):
@@ -154,14 +142,14 @@ class Beam(pg.sprite.Sprite):
     """
     ビームに関するクラス
     """
-    def __init__(self, bird: Bird):
+    def __init__(self, bird: Bird, angle0:float = 0):
         """
         ビーム画像Surfaceを生成する
         引数 bird：ビームを放つこうかとん
         """
         super().__init__()
         self.vx, self.vy = bird.dire
-        angle = math.degrees(math.atan2(-self.vy, self.vx))
+        angle = math.degrees(math.atan2(-self.vy, self.vx)) + angle0
         self.image = pg.transform.rotozoom(pg.image.load(f"fig/beam.png"), angle, 1.0)
         self.vx = math.cos(math.radians(angle))
         self.vy = -math.sin(math.radians(angle))
@@ -179,7 +167,32 @@ class Beam(pg.sprite.Sprite):
         if check_bound(self.rect) != (True, True):
             self.kill()
 
+class NeoBeam:
+    """
+    演習課題6:弾幕 を実装するためのクラス
+    """
+    def __init__(self, bird:Bird, num:int):
+        """
+        弾幕に必要な情報を定義する
+        引数1 bird:ビームを放つこうかとん
+        引数2 num:発射するビームの数
+        """
+        self.bird = bird
+        self.num = num
 
+    def gen_beams(self) -> list[Beam]:
+        """
+        -50°~+50°の範囲内でnum本のbeamインスタンスを生成、listにappendする
+        戻り値:Beamインスタンスのlist
+        """
+        beams = []
+        if self.num <= 1:
+            beams.append(Beam(self.bird, 0))
+            return beams
+        step = 100 // (self.num-1)
+        for angle in range(-50, +51, step):
+            beams.append(Beam(self.bird, angle))
+        return beams
 class Explosion(pg.sprite.Sprite):
     """
     爆発に関するクラス
@@ -255,43 +268,11 @@ class Score:
         screen.blit(self.image, self.rect)
 
 
-class Life:
-    """
-    残機（ライフ）を表示するクラス
-    """
-    def __init__(self, num: int):
-        self.num = num
-        self.surfs = []
-        for _ in range(num):
-            surf = pg.Surface((40, 40))
-            surf.set_colorkey((0, 0, 0))
-            points = [(16*math.sin(t/100)**3 + 20,
-                       -(13*math.cos(t/100)-5*math.cos(2*t/100)
-                         -2*math.cos(3*t/100)-math.cos(4*t/100)) + 20)
-                      for t in range(0, 628)]
-            pg.draw.polygon(surf, (255, 0, 0), points)
-            self.surfs.append(surf)
-
-        # 右下に配置（最右ハートの重心が下から50, 右から50）
-        self.base_x = WIDTH - 50
-        self.base_y = HEIGHT - 50
-
-    def update(self, screen: pg.Surface):
-        """
-        現在の残機数に応じてハートを描画する
-        """
-        for i in range(self.num):
-            x = self.base_x - i * 50  # ハートを左に並べる
-            y = self.base_y
-            screen.blit(self.surfs[i], (x - 20, y - 20))  # 中心合わせ
-
-
 def main():
     pg.display.set_caption("真！こうかとん無双")
     screen = pg.display.set_mode((WIDTH, HEIGHT))
     bg_img = pg.image.load(f"fig/pg_bg.jpg")
     score = Score()
-    life = Life(3)
 
     bird = Bird(3, (900, 400))
     bombs = pg.sprite.Group()
@@ -306,14 +287,13 @@ def main():
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 return 0
+            # [左Shift + Space]で弾幕 --- [Space]で通常弾
             if event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
-                beams.add(Beam(bird))
-            if event.type == pg.KEYDOWN and event.key == pg.K_RSHIFT:
-                print("OK")
-                if (bird.state == "nomal") and (score.value >= 100):
-                    bird.state = "hyper"
-                    bird.hyper_life = 500
-                    score.value -= 100
+                if key_lst[pg.K_LSHIFT]:
+                    neo_beam = NeoBeam(bird, Num_NeoBeam)
+                    beams.add(neo_beam.gen_beams())
+                else:
+                    beams.add(Beam(bird))
         screen.blit(bg_img, [0, 0])
 
         if tmr%200 == 0:  # 200フレームに1回，敵機を出現させる
@@ -334,19 +314,11 @@ def main():
             score.value += 1  # 1点アップ
 
         for bomb in pg.sprite.spritecollide(bird, bombs, True):  # こうかとんと衝突した爆弾リスト
-            if bird.state == "hyper": # 無敵状態の場合
-                exps.add(Explosion(bomb, 50)) # 爆弾エフェクト
-                score.value += 1 # 1点アップ
-            else:
-                life.num -= 1 # ライフを1減らす
-                bird.change_img(8, screen)  # こうかとん悲しみエフェクト
-                score.update(screen)
-                life.update(screen)
-                pg.display.update()
-                time.sleep(2)
-
-                if life.num <= 0:
-                    return # ライフが尽きたらゲーム終了
+            bird.change_img(8, screen)  # こうかとん悲しみエフェクト
+            score.update(screen)
+            pg.display.update()
+            time.sleep(2)
+            return
 
         bird.update(key_lst, screen)
         beams.update()
@@ -358,7 +330,6 @@ def main():
         exps.update()
         exps.draw(screen)
         score.update(screen)
-        life.update(screen)
         pg.display.update()
         tmr += 1
         clock.tick(50)
